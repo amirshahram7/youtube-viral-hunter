@@ -1,199 +1,140 @@
 import streamlit as st
 from googleapiclient.discovery import build
 import pandas as pd
+import isodate
 
-# --- تنظیمات صفحه ---
-st.set_page_config(page_title="شکارچی ویدیوهای پربازدید", layout="wide", page_icon="🔥")
+# ۱. تنظیمات اولیه صفحه
+st.set_page_config(page_title="شکارچی ویدیوهای ویروسی", page_icon="🔥", layout="wide")
 
-# --- استایل دهی (CSS) ---
+# ۲. کدهای CSS برای راست‌چین کردن و زیبایی در موبایل
 st.markdown("""
 <style>
-    .stApp { direction: rtl; text-align: right; font-family: 'Tahoma', sans-serif; }
-    div[data-testid="stMetricValue"] { font-size: 18px; }
-    .stSelectbox, .stTextInput { text-align: right; }
-    /* استایل دکمه قرمز یوتیوبی */
-    div.stButton > button:first-child { 
-        background-color: #FF0000; 
-        color: white; 
-        border-radius: 5px; 
-        font-weight: bold;
+    /* راست‌چین کردن کل برنامه و تغییر فونت */
+    * {
+        direction: rtl;
+        text-align: right;
+        font-family: 'Tahoma', 'Vazirmatn', sans-serif;
+    }
+    
+    /* چپ‌چین کردن ورودی‌های انگلیسی (مثل کلید API) */
+    .stTextInput input {
+        direction: ltr !important;
+        text-align: left !important;
+    }
+    
+    /* رفع مشکل آیکون منوی بازشونده */
+    .streamlit-expanderHeader {
+        direction: rtl;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- توابع کمکی ---
-def format_number(num):
-    if num >= 1_000_000_000: return f"{num/1_000_000_000:.1f} B (میلیارد)"
-    if num >= 1_000_000: return f"{num/1_000_000:.1f} M (میلیون)"
-    if num >= 1_000: return f"{num/1_000:.1f} K (هزار)"
-    return str(num)
-
-def calculate_revenue(views, country):
-    # تخمین ساده بر اساس کشور
-    tier1 = ['US', 'GB', 'CA', 'AU', 'DE', 'CH'] 
-    rpm = 4.0 if country in tier1 else 1.5
-    if country == 'IR': rpm = 0
-    return (views / 1000) * rpm, rpm
-
-# --- بدنه اصلی ---
+# ۳. تیتر اصلی برنامه
 st.title("🔥 شکارچی ویدیوهای ویروسی (Viral Finder)")
-st.caption("جستجوی ویدیو بر اساس تایتل و مرتب‌سازی بر اساس بازدید (نه سابسکرایبر)")
-st.divider()
+st.markdown("جستجوی ویدیو بر اساس موضوع و مرتب‌سازی بر اساس **بازدید** (نه سابسکرایبر)")
 
-# سایدبار تنظیمات
-with st.sidebar:
-    st.header("⚙️ تنظیمات جستجو")
-    api_key = st.text_input("🔑 کلید API یوتیوب:", type="password")
-    
-    st.markdown("---")
-    st.subheader("👁️ فیلتر بازدید")
-    # اسلایدر برای حداقل بازدید ویدیو
-    min_views = st.slider("حداقل بازدید ویدیو:", 
-                          min_value=100_000, 
-                          max_value=50_000_000, 
-                          value=1_000_000, 
-                          step=500_000,
-                          format="%d")
-    st.info(f"ویدیوهایی که کمتر از {format_number(min_views)} بازدید داشته باشند حذف می‌شوند.")
+# ۴. بخش تنظیمات (جایگزین عالی برای سایدبار در موبایل)
+with st.expander("⚙️ تنظیمات و وارد کردن کلید API (برای باز/بسته شدن اینجا کلیک کنید)", expanded=True):
+    api_key = st.text_input("🔑 لطفاً کلید API یوتیوب خود را وارد کنید:", type="password")
+    max_results = st.number_input("تعداد نتایج جستجو:", min_value=1, max_value=50, value=10)
 
-if api_key:
+# اگر کلید وارد نشده بود، برنامه متوقف شود
+if not api_key:
+    st.info("👈 برای استفاده از برنامه، لطفاً ابتدا کلید API خود را در کادر بالا وارد کنید.")
+    st.stop()
+
+# ۵. توابع ارتباط با یوتیوب
+@st.cache_data
+def search_viral_videos(query, max_res):
+    try:
+        youtube = build('youtube', 'v3', developerKey=api_key)
+        request = youtube.search().list(
+            q=query,
+            part='snippet',
+            type='video',
+            order='viewCount', # یافتن ویدیوهای وایرال
+            maxResults=max_res
+        )
+        response = request.execute()
+        
+        videos = []
+        for item in response.get('items', []):
+            videos.append({
+                'عنوان': item['snippet']['title'],
+                'کانال': item['snippet']['channelTitle'],
+                'تاریخ انتشار': item['snippet']['publishedAt'][:10],
+                'video_id': item['id']['videoId'],
+                'channel_id': item['snippet']['channelId'],
+                'تصویر': item['snippet']['thumbnails']['high']['url']
+            })
+        return pd.DataFrame(videos)
+    except Exception as e:
+        st.error(f"خطا در ارتباط با یوتیوب (احتمالاً کلید API نامعتبر است): {e}")
+        return pd.DataFrame()
+
+@st.cache_data
+def get_video_details(video_id, channel_id):
     youtube = build('youtube', 'v3', developerKey=api_key)
     
-    # --- بخش ۱: ورودی جستجو ---
-    col1, col2 = st.columns([4, 1])
-    with col1:
-        query = st.text_input("موضوع یا کلمه کلیدی ویدیو (مثلاً: Minecraft, ASMR, Python Tutorial):")
-    with col2:
-        st.write("")
-        st.write("")
-        search_btn = st.button("🔍 بیاب و بچین!", use_container_width=True)
+    # گرفتن آمار ویدیو
+    vid_req = youtube.videos().list(part='statistics', id=video_id)
+    vid_res = vid_req.execute()
+    views = int(vid_res['items'][0]['statistics']['viewCount'])
+    
+    # گرفتن کشور کانال
+    ch_req = youtube.channels().list(part='snippet', id=channel_id)
+    ch_res = ch_req.execute()
+    country = ch_res['items'][0]['snippet'].get('country', 'نامشخص')
+    
+    # فرمول تخمین درآمد (به ازای هر هزار بازدید ۱ تا ۳ دلار)
+    est_min = (views / 1000) * 1
+    est_max = (views / 1000) * 3
+    
+    return views, country, est_min, est_max
 
-    if search_btn and query:
-        with st.spinner('در حال شخم زدن یوتیوب برای یافتن پربازدیدترین‌ها...'):
-            try:
-                # 1. جستجوی ویدیوها بر اساس کلمه کلیدی و مرتب‌سازی بر اساس ViewCount
-                search_response = youtube.search().list(
-                    q=query,
-                    type='video',
-                    part='id',
-                    maxResults=50, # گرفتن 50 نتیجه برتر
-                    order='viewCount' # کلید ماجرا: از زیاد به کم
-                ).execute()
+# ۶. طراحی تب‌ها
+tab1, tab2 = st.tabs(["🔍 جستجوی موضوعی (Viral Hunter)", "📊 آنالیز کانال"])
 
-                video_ids = [item['id']['videoId'] for item in search_response['items']]
-
-                if not video_ids:
-                    st.error("هیچ ویدیویی یافت نشد!")
-                else:
-                    # 2. گرفتن آمار دقیق ویدیوها (چون Search API آمار دقیق نمیده)
-                    videos_stats = youtube.videos().list(
-                        id=','.join(video_ids),
-                        part='snippet,statistics'
-                    ).execute()
-
-                    # 3. استخراج آیدی کانال‌ها برای گرفتن کشور
-                    channel_ids = list(set([v['snippet']['channelId'] for v in videos_stats['items']]))
-                    
-                    # 4. گرفتن اطلاعات کانال‌ها (برای کشور و سابسکرایبر)
-                    channels_stats = youtube.channels().list(
-                        id=','.join(channel_ids),
-                        part='snippet,statistics'
-                    ).execute()
-                    
-                    # ساخت دیکشنری برای دسترسی سریع به اطلاعات کانال
-                    ch_info = {}
-                    for ch in channels_stats['items']:
-                        ch_info[ch['id']] = {
-                            'subs': int(ch['statistics'].get('subscriberCount', 0)),
-                            'country': ch['snippet'].get('country', 'N/A'),
-                            'thumb': ch['snippet']['thumbnails']['default']['url']
-                        }
-
-                    # 5. ترکیب داده‌ها و فیلتر کردن
-                    final_results = []
-                    for vid in videos_stats['items']:
-                        views = int(vid['statistics'].get('viewCount', 0))
-                        
-                        # *** شرط شما: حداقل بازدید ***
-                        if views >= min_views:
-                            ch_id = vid['snippet']['channelId']
-                            ch_data = ch_info.get(ch_id, {})
-                            
-                            final_results.append({
-                                'title': vid['snippet']['title'],
-                                'video_id': vid['id'],
-                                'views': views,
-                                'date': vid['snippet']['publishedAt'][:10],
-                                'channel_name': vid['snippet']['channelTitle'],
-                                'channel_subs': ch_data.get('subs', 0),
-                                'country': ch_data.get('country', 'Global'),
-                                'thumb': vid['snippet']['thumbnails']['high']['url'],
-                                'ch_thumb': ch_data.get('thumb', '')
-                            })
-
-                    # مرتب‌سازی نهایی (محض اطمینان)
-                    final_results.sort(key=lambda x: x['views'], reverse=True)
-                    
-                    st.session_state['results'] = final_results
-                    st.session_state['step'] = 2
-
-            except Exception as e:
-                st.error(f"خطا در ارتباط با یوتیوب: {e}")
-
-    # --- بخش ۲: نمایش نتایج ---
-    if st.session_state.get('step') == 2:
-        results = st.session_state.get('results', [])
-        
-        if not results:
-            st.warning(f"ویدیویی با موضوع '{query}' که بالای {format_number(min_views)} بازدید داشته باشد پیدا نشد.")
-        else:
-            st.success(f"{len(results)} ویدیو غول‌پیکر پیدا شد! (مرتب شده از بیشترین بازدید)")
+with tab1:
+    st.header("شکار ویدیوهای پربازدید")
+    search_query = st.text_input("موضوع مورد نظر خود را بنویسید (مثال: آموزش پایتون یا Funny cats):")
+    
+    if search_query:
+        with st.spinner('در حال شکار ویدیوهای وایرال... 🕵️‍♂️'):
+            df = search_viral_videos(search_query, max_results)
             
-            # ساخت لیست انتخابی هوشمند
-            options = {}
-            for res in results:
-                label = f"👁️ {format_number(res['views'])} | {res['title']} (by {res['channel_name']})"
-                options[label] = res
+        if not df.empty:
+            st.success("ویدیوها پیدا شدند!")
             
-            selected_label = st.selectbox("ویدیو را انتخاب کنید تا آنالیز شود:", list(options.keys()))
-            data = options[selected_label]
-
-            st.divider()
+            # Master-Detail: انتخاب از لیست
+            video_titles = df['عنوان'].tolist()
+            selected_title = st.selectbox("📌 یک ویدیو را برای مشاهده جزئیات عمیق و تخمین درآمد انتخاب کنید:", video_titles)
             
-            # --- بخش ۳: نمایش جزئیات و محاسبه درآمد ---
-            col_media, col_info = st.columns([1, 2])
-            
-            with col_media:
-                st.image(data['thumb'], use_container_width=True, caption="Thumbnail ویدیو")
+            if selected_title:
+                selected_video = df[df['عنوان'] == selected_title].iloc[0]
+                
                 st.write("---")
-                # نمایش کوچک کانال
-                c1, c2 = st.columns([1, 3])
-                with c1: st.image(data['ch_thumb'], width=50)
-                with c2: 
-                    st.write(f"**{data['channel_name']}**")
-                    st.caption(f"👥 سابسکرایبر: {format_number(data['channel_subs'])}")
+                col1, col2 = st.columns([1, 2])
+                with col1:
+                    # حل مشکل عکس با use_container_width
+                    st.image(selected_video['تصویر'], use_container_width=True)
+                with col2:
+                    st.subheader(selected_title)
+                    st.write(f"📺 **نام کانال:** {selected_video['کانال']}")
+                    st.write(f"📅 **تاریخ ساخت:** {selected_video['تاریخ انتشار']}")
+                    
+                    with st.spinner('در حال محاسبه درآمد تخمینی... 💰'):
+                        views, country, est_min, est_max = get_video_details(selected_video['video_id'], selected_video['channel_id'])
+                        
+                    st.write(f"🌍 **کشور کانال:** {country}")
+                    st.write(f"👁️ **بازدید ویدیو:** {views:,}")
+                    st.success(f"💵 **تخمین درآمد این ویدیو:** بین ${est_min:,.0f} تا ${est_max:,.0f}")
+                
+                # نمایش پلیر ویدیو
+                st.video(f"https://www.youtube.com/watch?v={selected_video['video_id']}")
+        elif search_query:
+            st.warning("ویدیویی با این موضوع یافت نشد.")
 
-            with col_info:
-                st.header(data['title'])
-                
-                # محاسبه درآمد
-                revenue, rpm = calculate_revenue(data['views'], data['country'])
-                
-                # متریک‌ها
-                m1, m2, m3 = st.columns(3)
-                m1.metric("تعداد بازدید", format_number(data['views']))
-                m2.metric("کشور سازنده", data['country'])
-                m3.metric("تاریخ انتشار", data['date'])
-                
-                st.success(f"💰 درآمد تخمینی این ویدیو: ${revenue:,.2f}")
-                st.caption(f"محاسبه شده با RPM تقریبی ${rpm} برای کشور {data['country']}")
-                
-                st.markdown(f"""
-                **چرا این نتیجه مهم است؟**
-                - شما ویدیویی با **{format_number(data['views'])}** بازدید پیدا کردید.
-                - حتی اگر سابسکرایبر کانال کم باشد ({format_number(data['channel_subs'])}), این ویدیو توانسته ویرال شود.
-                - لینک ویدیو: [تماشا در یوتیوب](https://www.youtube.com/watch?v={data['video_id']})
-                """)
-
-else:
-    st.info("لطفاً کلید API را وارد کنید.")
+with tab2:
+    st.header("آنالیز مستقیم کانال")
+    st.info("این بخش برای آپدیت‌های بعدی رزرو شده است. لطفاً فعلاً از تب «جستجوی موضوعی» استفاده کنید.")
