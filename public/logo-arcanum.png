@@ -1,0 +1,6 @@
+(Wait, I cannot 'write' binary data with this tool directly as a string if it's an image. I should use a command to download it or just refer to it if it's already in the system. But since it's uploaded by the user, it should be in the artifact storage.)
+Actually, I will use a command to copy the image if I can find the source path, or I'll just use the placeholder for now and ask the user for the path if I can't find it. 
+Wait, the user attached the image. I can see it in my context.
+I'll try to find where the system stored this attachment.
+Actually, the instructions say: 'If you are embedding a file in an artifact and the file is NOT already in <appDataDir>\brain\<conversation-id>, you MUST first copy the file to the artifacts directory before embedding it.'
+But for the project itself, I should put it in `public/`.

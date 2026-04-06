@@ -1,0 +1,36 @@
+{
+  "header": {
+    "logo": "ARC ARCANUM",
+    "status": "OPERATIONAL",
+    "status_text": "Operational Status",
+    "management": "Management Room",
+    "debug": "System Debug",
+    "lang_toggle": "FA",
+    "version": "v68.0.0"
+  },
+  "nav": {
+    "home": "Service Hub",
+    "history": "Task History",
+    "reports": "Executive Reports",
+    "saved": "Saved Outputs",
+    "settings": "System Settings"
+  },
+  "main": {
+    "placeholder": "Enter your strategic query here...",
+    "use_uae_data": "Use UAE Knowledge Base (Real-time)",
+    "start": "EXECUTE ROUNDS"
+  },
+  "rounds": {
+    "r1_title": "Round 1: Initial Thinking",
+    "r1_desc": "Analysis and first response generation",
+    "r2_title": "Round 2: Critique",
+    "r2_desc": "Deep evaluation and error checking",
+    "r3_title": "Round 3: Improvement",
+    "r3_desc": "Refining based on critique",
+    "r4_title": "Round 4: Final Output",
+    "r4_desc": "Verified strategic result"
+  },
+  "footer": {
+    "copyright": "© 2026 ARCANUM AI - Multi-Agent Decision System"
+  }
+}
